@@ -57,6 +57,7 @@ function App() {
   const [activeRoom, setActiveRoom] = useState(null);
   const [activeParticipantType, setActiveParticipantType] = useState(null);
   const [myRooms, setMyRooms] = useState([]);
+  const [pendingRequestCounts, setPendingRequestCounts] = useState({});
   const [myRoomsLoading, setMyRoomsLoading] = useState(false);
   const [myRoomsError, setMyRoomsError] = useState("");
   const [roomGuests, setRoomGuests] = useState([]);
@@ -145,7 +146,9 @@ function App() {
         throw new Error(data.message || "Unable to load your rooms.");
       }
 
-      setMyRooms(data.rooms || []);
+      const rooms = data.rooms || [];
+      setMyRooms(rooms);
+      await loadPendingRequestCounts(rooms);
     } catch (error) {
       setMyRoomsError(
         error.message === "Failed to fetch"
@@ -241,6 +244,42 @@ function App() {
   }
 
 
+  async function loadPendingRequestCounts(rooms = myRooms) {
+    if (!authToken || rooms.length === 0) {
+      setPendingRequestCounts({});
+      return;
+    }
+
+    const counts = {};
+
+    await Promise.all(
+      rooms.map(async (room) => {
+        try {
+          const response = await fetch(
+            `http://localhost:5000/api/guests/rooms/${room.id}/join-requests`,
+            {
+              headers: {
+                Authorization: `Bearer ${authToken}`,
+              },
+            }
+          );
+
+          if (!response.ok) return;
+
+          const data = await response.json();
+          counts[room.id] = (data.requests || []).length;
+        } catch {
+          // Keep the dashboard usable if one room's request count fails.
+        }
+      })
+    );
+
+    setPendingRequestCounts(counts);
+  }
+
+
+
+
   async function handleJoinRoom(event) {
     event.preventDefault();
 
@@ -256,7 +295,7 @@ function App() {
 
     try {
       const response = await fetch(
-        "http://localhost:5000/api/guests/join",
+        "http://localhost:5000/api/guests/request-join",
         {
           method: "POST",
           headers: {
@@ -272,24 +311,65 @@ function App() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.message || "Unable to join room.");
+        throw new Error(data.message || "Unable to send join request.");
       }
 
-      localStorage.setItem(
-        "trustflow_guest_token",
-        data.sessionToken
-      );
+      const requestToken = data.requestToken;
 
-      setJoinedRoom({
-        ...data.room,
-        guest: data.guest,
-        sessionExpiresAt: data.sessionExpiresAt,
-      });
+      if (!requestToken) {
+        throw new Error("The server did not return a request token.");
+      }
 
-      setActiveRoom(data.room);
-      setActiveParticipantType("guest");
+      alert("Join request sent. Waiting for the room owner to respond.");
 
-      loadRoomFiles(data.room.id);
+      while (true) {
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+
+        const statusResponse = await fetch(
+          "http://localhost:5000/api/guests/join-request-status",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ requestToken }),
+          }
+        );
+
+        const statusData = await statusResponse.json();
+
+        if (!statusResponse.ok) {
+          throw new Error(
+            statusData.message || "Unable to check request status."
+          );
+        }
+
+        if (statusData.status === "pending") {
+          continue;
+        }
+
+        if (statusData.status === "rejected") {
+          throw new Error("Your join request was rejected by the room owner.");
+        }
+
+        if (statusData.status === "accepted") {
+          localStorage.setItem("trustflow_guest_token", requestToken);
+
+          setJoinedRoom({
+            ...statusData.room,
+            guest: statusData.guest,
+            sessionExpiresAt: statusData.sessionExpiresAt,
+          });
+
+          setActiveRoom(statusData.room);
+          setActiveParticipantType("guest");
+
+          await loadRoomFiles(statusData.room.id);
+          break;
+        }
+
+        throw new Error("Unknown join request status.");
+      }
     } catch (error) {
       setJoinError(
         error.message === "Failed to fetch"
@@ -300,6 +380,8 @@ function App() {
       setJoining(false);
     }
   }
+
+
 
   async function handleLeaveRoom() {
 
@@ -545,7 +627,20 @@ function App() {
               <div className="my-rooms-list">
                 {myRooms.map((room) => (
                   <article className="my-room-card" key={room.id}>
-                    <h3>{room.name}</h3>
+                    <h3 className="my-room-title">
+                      {room.name}
+
+                      {pendingRequestCounts[room.id] > 0 && (
+                        <span
+                          className="pending-request-indicator"
+                          title={`${pendingRequestCounts[room.id]} pending join request(s)`}
+                          aria-label={`${pendingRequestCounts[room.id]} pending join request(s)`}
+                        >
+                          <span className="pending-request-dot" />
+                          Pending requests ({pendingRequestCounts[room.id]})
+                        </span>
+                      )}
+                    </h3>
 
                     <p>
                       Invite code: <strong>{room.inviteCode}</strong>

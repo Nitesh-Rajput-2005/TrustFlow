@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import "./RoomPage.css";
 
 
@@ -23,7 +23,11 @@ function RoomPage({
     const [uploading, setUploading] = useState(false);
     const [uploadError, setUploadError] = useState("");
     const [uploadMessage, setUploadMessage] = useState("");
-
+    const [joinRequests, setJoinRequests] = useState([]);
+    const [requestsLoading, setRequestsLoading] = useState(false);
+    const [requestsError, setRequestsError] = useState("");
+    const [showRequests, setShowRequests] = useState(false);
+    const [reviewingRequestId, setReviewingRequestId] = useState(null);
 
     async function handleUpload(event) {
         event.preventDefault();
@@ -104,6 +108,76 @@ function RoomPage({
     }
 
 
+    async function loadJoinRequests() {
+        if (participantType !== "creator" || !room?.id || !accessToken) {
+            setJoinRequests([]);
+            return;
+        }
+
+        setRequestsLoading(true);
+        setRequestsError("");
+
+        try {
+            const response = await fetch(
+                `http://localhost:5000/api/guests/rooms/${room.id}/join-requests`,
+                {
+                    headers: {
+                        Authorization: `Bearer ${accessToken}`,
+                    },
+                }
+            );
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.message || "Unable to load join requests.");
+            }
+
+            setJoinRequests(data.requests || []);
+        } catch (error) {
+            setRequestsError(error.message || "Unable to load join requests.");
+        } finally {
+            setRequestsLoading(false);
+        }
+    }
+
+
+    async function handleReviewRequest(requestId, decision) {
+        setReviewingRequestId(requestId);
+        setRequestsError("");
+
+        try {
+            const response = await fetch(
+                `http://localhost:5000/api/guests/rooms/${room.id}/join-requests/${requestId}`,
+                {
+                    method: "PATCH",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${accessToken}`,
+                    },
+                    body: JSON.stringify({ decision }),
+                }
+            );
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.message || "Unable to review request.");
+            }
+
+            await loadJoinRequests();
+        } catch (error) {
+            setRequestsError(error.message || "Unable to review request.");
+        } finally {
+            setReviewingRequestId(null);
+        }
+    }
+
+    useEffect(() => {
+        loadJoinRequests();
+    }, [room?.id, participantType, accessToken]);
+
+
     if (!room) {
         return null;
     }
@@ -171,8 +245,7 @@ function RoomPage({
                             <h2>Room Participants</h2>
                             <p>View guests who have joined this room.</p>
                         </div>
-
-                        <button
+                        <div className="roombtn"><button
                             type="button"
                             className="button button-outline"
                             onClick={onRefreshGuests}
@@ -180,7 +253,69 @@ function RoomPage({
                         >
                             {guestsLoading ? "Loading..." : "Refresh"}
                         </button>
+                            <button
+                                type="button"
+                                className="button button-outline"
+                                onClick={() => setShowRequests((previous) => !previous)}
+                            >
+                                Requests{joinRequests.length > 0 ? ` (${joinRequests.length})` : ""}
+                            </button></div>
+
                     </div>
+
+
+                    {showRequests && (
+                        <div className="room-requests-panel">
+                            <h3>Join Requests</h3>
+                            <p>Review guests waiting to enter this room.</p>
+
+                            {requestsError && (
+                                <p className="room-error">{requestsError}</p>
+                            )}
+
+                            {requestsLoading ? (
+                                <p>Loading requests...</p>
+                            ) : joinRequests.length === 0 ? (
+                                <p>No pending requests.</p>
+                            ) : (
+                                <div className="room-guests-list">
+                                    {joinRequests.map((request) => (
+                                        <article className="room-guest-card" key={request._id}>
+                                            <h4>{request.displayName}</h4>
+                                            <p>
+                                                Requested:{" "}
+                                                {new Date(request.createdAt).toLocaleString()}
+                                            </p>
+
+                                            <button
+                                                type="button"
+                                                className="button button-primary"
+                                                disabled={reviewingRequestId === request._id}
+                                                onClick={() =>
+                                                    handleReviewRequest(request._id, "accepted")
+                                                }
+                                            >
+                                                {reviewingRequestId === request._id
+                                                    ? "Processing..."
+                                                    : "Accept"}
+                                            </button>
+
+                                            <button
+                                                type="button"
+                                                className="button button-outline"
+                                                disabled={reviewingRequestId === request._id}
+                                                onClick={() =>
+                                                    handleReviewRequest(request._id, "rejected")
+                                                }
+                                            >
+                                                Reject
+                                            </button>
+                                        </article>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     {guestsError && (
                         <p className="room-error">{guestsError}</p>
