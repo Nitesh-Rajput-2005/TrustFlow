@@ -47,7 +47,7 @@ function RoomPage({
             formData.append("file", selectedFile);
 
             const response = await fetch(
-                `http://localhost:5000/api/files/rooms/${room.id}/upload`,
+                `${API_URL}/api/files/rooms/${room.id}/upload`,
                 {
                     method: "POST",
                     headers: {
@@ -82,7 +82,7 @@ function RoomPage({
     async function handleDownload(file) {
         try {
             const response = await fetch(
-                `http://localhost:5000/api/files/rooms/${room.id}/files/${file._id}/download`,
+                `${API_URL}/api/files/rooms/${room.id}/files/${file._id}/download`,
                 {
                     headers: {
                         Authorization: `Bearer ${accessToken}`,
@@ -120,7 +120,7 @@ function RoomPage({
 
         try {
             const response = await fetch(
-                `http://localhost:5000/api/guests/rooms/${room.id}/join-requests`,
+                `${API_URL}/api/guests/rooms/${room.id}/join-requests`,
                 {
                     headers: {
                         Authorization: `Bearer ${accessToken}`,
@@ -149,7 +149,7 @@ function RoomPage({
 
         try {
             const response = await fetch(
-                `http://localhost:5000/api/guests/rooms/${room.id}/join-requests/${requestId}`,
+                `${API_URL}/api/guests/rooms/${room.id}/join-requests/${requestId}`,
                 {
                     method: "PATCH",
                     headers: {

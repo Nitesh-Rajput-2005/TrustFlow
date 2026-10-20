@@ -34,7 +34,7 @@ function App() {
   }
 
   useEffect(() => {
-    fetch("http://localhost:5000/api/health")
+    fetch(`${API_URL}/api/health`)
       .then((response) => {
         if (!response.ok) {
           throw new Error("Backend unavailable");
@@ -85,7 +85,7 @@ function App() {
     setLoading(true);
 
     try {
-      const response = await fetch("http://localhost:5000/api/rooms", {
+      const response = await fetch(`${API_URL}/api/rooms`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -133,7 +133,7 @@ function App() {
 
     try {
       const response = await fetch(
-        "http://localhost:5000/api/rooms/my-rooms",
+        `${API_URL}/api/rooms/my-rooms`,
         {
           headers: {
             Authorization: `Bearer ${authToken}`,
@@ -169,12 +169,12 @@ function App() {
 
     try {
       const [historyResponse, verifyResponse] = await Promise.all([
-        fetch(`http://localhost:5000/api/audit/rooms/${roomId}/history`, {
+        fetch(`${API_URL}/api/audit/rooms/${roomId}/history`, {
           headers: {
             Authorization: `Bearer ${authToken}`,
           },
         }),
-        fetch(`http://localhost:5000/api/audit/rooms/${roomId}/verify`, {
+        fetch(`${API_URL}/api/audit/rooms/${roomId}/verify`, {
           headers: {
             Authorization: `Bearer ${authToken}`,
           },
@@ -218,7 +218,7 @@ function App() {
 
     try {
       const response = await fetch(
-        `http://localhost:5000/api/guests/rooms/${roomId}/guests`,
+        `${API_URL}/api/guests/rooms/${roomId}/guests`,
         {
           headers: {
             Authorization: `Bearer ${authToken}`,
@@ -257,7 +257,7 @@ function App() {
       rooms.map(async (room) => {
         try {
           const response = await fetch(
-            `http://localhost:5000/api/guests/rooms/${room.id}/join-requests`,
+            `${API_URL}/api/guests/rooms/${room.id}/join-requests`,
             {
               headers: {
                 Authorization: `Bearer ${authToken}`,
@@ -296,7 +296,7 @@ function App() {
 
     try {
       const response = await fetch(
-        "http://localhost:5000/api/guests/request-join",
+        `${API_URL}/api/guests/request-join`,
         {
           method: "POST",
           headers: {
@@ -327,7 +327,7 @@ function App() {
         await new Promise((resolve) => setTimeout(resolve, 3000));
 
         const statusResponse = await fetch(
-          "http://localhost:5000/api/guests/join-request-status",
+          `${API_URL}/api/guests/join-request-status`,
           {
             method: "POST",
             headers: {
@@ -410,7 +410,7 @@ function App() {
 
     try {
       const response = await fetch(
-        "http://localhost:5000/api/guests/leave",
+        `${API_URL}/api/guests/leave`,
         {
           method: "POST",
           headers: {
@@ -458,7 +458,7 @@ function App() {
 
     try {
       const response = await fetch(
-        `http://localhost:5000/api/files/rooms/${roomId}/files`,
+        `${API_URL}/api/files/rooms/${roomId}/files`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -693,7 +693,7 @@ function App() {
 
                             try {
                               const response = await fetch(
-                                `http://localhost:5000/api/rooms/${room.id}/close`,
+                                `${API_URL}/api/rooms/${room.id}/close`,
                                 {
                                   method: "PATCH",
                                   headers: {
@@ -740,7 +740,7 @@ function App() {
 
                             try {
                               const response = await fetch(
-                                `http://localhost:5000/api/rooms/${room.id}/reopen`,
+                                `${API_URL}/api/rooms/${room.id}/reopen`,
                                 {
                                   method: "PATCH",
                                   headers: {
@@ -782,7 +782,7 @@ function App() {
 
                         try {
                           const response = await fetch(
-                            `http://localhost:5000/api/rooms/${room.id}`,
+                            `${API_URL}/api/rooms/${room.id}`,
                             {
                               method: "DELETE",
                               headers: {
