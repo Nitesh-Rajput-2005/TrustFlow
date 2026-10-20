@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import "./App.css";
 import RoomPage from "./RoomPage";
 import Auth from "./Auth";
+const API_URL = import.meta.env.VITE_API_URL;
 
 function App() {
   const [backendStatus, setBackendStatus] = useState("Checking connection...");
