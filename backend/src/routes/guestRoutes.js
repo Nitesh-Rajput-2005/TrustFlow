@@ -1,5 +1,5 @@
-
 const express = require("express");
+
 const {
     joinRoom,
     requestToJoinRoom,
@@ -8,6 +8,7 @@ const {
     getJoinRequests,
     reviewJoinRequest,
     getJoinRequestStatus,
+    withdrawJoinRequest,
 } = require("../controllers/guestController");
 
 const authMiddleware = require("../middleware/authMiddleware");
@@ -35,6 +36,8 @@ router.patch(
 );
 
 router.post("/join-request-status", getJoinRequestStatus);
+
+router.post("/withdraw-join-request", withdrawJoinRequest);
 
 // Only the authenticated room creator can view participants.
 router.get(

@@ -123,6 +123,7 @@ async function uploadFile(req, res) {
 
         savedFileId = savedFile._id;
 
+
         await recordAuditEvent({
             roomId: req.room._id,
             eventType: "FILE_UPLOADED",
@@ -132,7 +133,17 @@ async function uploadFile(req, res) {
                     : "Room creator",
         });
 
+        // Notify everyone subscribed to this room that a file was uploaded.
+        const io = req.app.get("io");
+
+        io?.to(`room:${req.room._id}:members`).emit("file:updated", {
+            roomId: req.room._id.toString(),
+            fileId: savedFile._id.toString(),
+            action: "uploaded",
+        });
+
         uploadedAsset = null;
+
 
 
         return res.status(201).json({

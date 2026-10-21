@@ -174,6 +174,17 @@ async function requestToJoinRoom(req, res) {
             requestTokenHash,
         });
 
+
+        const io = req.app.get("io");
+
+        io?.to(`room:${room._id}:owners`).emit("join-request:new", {
+            roomId: room._id.toString(),
+            requestId: joinRequest._id.toString(),
+            displayName: joinRequest.displayName,
+            createdAt: joinRequest.createdAt,
+        });
+
+
         return res.status(201).json({
             success: true,
             message: "Join request submitted. Wait for the room owner to respond.",
@@ -246,6 +257,15 @@ async function leaveRoom(req, res) {
             eventType: "GUEST_LEFT",
             guestDisplayName: guestSession.displayName,
         });
+
+
+        const io = req.app.get("io");
+
+        io?.to(`room:${guestSession.room}:members`).emit("member:left", {
+            roomId: guestSession.room.toString(),
+            displayName: guestSession.displayName,
+        });
+
 
         return res.status(200).json({
             success: true,
@@ -413,13 +433,36 @@ async function reviewJoinRequest(req, res) {
         joinRequest.reviewedAt = new Date();
         await joinRequest.save();
 
+
         if (decision === "accepted") {
             await recordAuditEvent({
                 roomId: room._id,
                 eventType: "GUEST_JOINED",
                 guestDisplayName: joinRequest.displayName,
             });
+
+            const io = req.app.get("io");
+
+            io?.to(`room:${room._id}:members`).emit("member:joined", {
+                roomId: room._id.toString(),
+                displayName: joinRequest.displayName,
+            });
+
+            io?.to(`room:${room._id}:owners`).emit("join-request:updated", {
+                roomId: room._id.toString(),
+                requestId: joinRequest._id.toString(),
+                status: "accepted",
+            });
+        } else {
+            const io = req.app.get("io");
+
+            io?.to(`room:${room._id}:owners`).emit("join-request:updated", {
+                roomId: room._id.toString(),
+                requestId: joinRequest._id.toString(),
+                status: "rejected",
+            });
         }
+
 
         return res.status(200).json({
             success: true,
@@ -482,7 +525,9 @@ async function getJoinRequestStatus(req, res) {
                     ? "Your request was accepted."
                     : joinRequest.status === "rejected"
                         ? "Your request was rejected."
-                        : "Your request is awaiting approval.",
+                        : joinRequest.status === "withdrawn"
+                            ? "Your request was withdrawn."
+                            : "Your request is awaiting approval.",
         };
 
         if (joinRequest.status === "accepted") {
@@ -520,6 +565,72 @@ async function getJoinRequestStatus(req, res) {
 }
 
 
+async function withdrawJoinRequest(req, res) {
+    try {
+        const authHeader = req.headers.authorization;
+
+        if (!authHeader || !authHeader.startsWith("Bearer ")) {
+            return res.status(401).json({
+                success: false,
+                message: "Request token is required.",
+            });
+        }
+
+        const requestToken = authHeader.slice(7).trim();
+
+        if (!/^[a-f0-9]{64}$/i.test(requestToken)) {
+            return res.status(401).json({
+                success: false,
+                message: "Invalid request token.",
+            });
+        }
+
+        const requestTokenHash = crypto
+            .createHash("sha256")
+            .update(requestToken)
+            .digest("hex");
+
+        const joinRequest = await JoinRequest.findOne({
+            requestTokenHash,
+            status: "pending",
+        });
+
+        if (!joinRequest) {
+            return res.status(404).json({
+                success: false,
+                message: "Pending join request not found. It may already have been reviewed or withdrawn.",
+            });
+        }
+
+        joinRequest.status = "withdrawn";
+        joinRequest.reviewedAt = new Date();
+        await joinRequest.save();
+
+        const io = req.app.get("io");
+
+        io?.to(`room:${joinRequest.room}:owners`).emit(
+            "join-request:updated",
+            {
+                roomId: joinRequest.room.toString(),
+                requestId: joinRequest._id.toString(),
+                status: "withdrawn",
+            }
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: "Join request withdrawn successfully.",
+        });
+    } catch (error) {
+        console.error("Withdraw join request error:", error.message);
+
+        return res.status(500).json({
+            success: false,
+            message: "Unable to withdraw join request.",
+        });
+    }
+}
+
 module.exports = {
     joinRoom,
     requestToJoinRoom,
@@ -528,4 +639,5 @@ module.exports = {
     getJoinRequests,
     reviewJoinRequest,
     getJoinRequestStatus,
+    withdrawJoinRequest,
 };

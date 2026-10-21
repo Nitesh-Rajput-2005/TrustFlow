@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import "./RoomPage.css";
 const API_URL = import.meta.env.VITE_API_URL;
-
-
+import socket from "./api/socket";
+import RequestsPage from "./RequestsPage";
 
 function RoomPage({
     room,
@@ -27,7 +27,7 @@ function RoomPage({
     const [joinRequests, setJoinRequests] = useState([]);
     const [requestsLoading, setRequestsLoading] = useState(false);
     const [requestsError, setRequestsError] = useState("");
-    const [showRequests, setShowRequests] = useState(false);
+    const [showRequestsPage, setShowRequestsPage] = useState(false);
     const [reviewingRequestId, setReviewingRequestId] = useState(null);
 
     async function handleUpload(event) {
@@ -142,6 +142,104 @@ function RoomPage({
         }
     }
 
+    useEffect(() => {
+        if (!room?.id) return;
+
+        const subscribe = () => {
+            socket.emit("room:subscribe", room.id, (result) => {
+                if (!result?.success) {
+                    console.error(
+                        "Unable to subscribe to room:",
+                        result?.message
+                    );
+                } else {
+                    console.log("Subscribed to room:", room.id);
+                }
+            });
+        };
+
+        if (socket.connected) {
+            subscribe();
+        } else {
+            socket.connect();
+            socket.once("connect", subscribe);
+        }
+
+        return () => {
+            socket.off("connect", subscribe);
+            socket.emit("room:unsubscribe", room.id);
+        };
+    }, [room?.id]);
+
+
+    useEffect(() => {
+        if (!room?.id) return;
+
+        const refreshParticipants = (event) => {
+            if (event?.roomId === room.id) {
+                onRefreshGuests?.();
+            }
+        };
+
+        socket.on("member:joined", refreshParticipants);
+        socket.on("member:left", refreshParticipants);
+
+        return () => {
+            socket.off("member:joined", refreshParticipants);
+            socket.off("member:left", refreshParticipants);
+        };
+    }, [room?.id, onRefreshGuests]);
+
+
+    useEffect(() => {
+        if (!room?.id) return;
+
+        const handleFileUpdate = (event) => {
+            if (event?.roomId === room.id) {
+                onFileUploaded?.();
+            }
+        };
+
+        socket.on("file:updated", handleFileUpdate);
+
+        return () => {
+            socket.off("file:updated", handleFileUpdate);
+        };
+    }, [room?.id, onFileUploaded]);
+
+    useEffect(() => {
+        if (!room?.id || participantType !== "creator") return;
+
+        const refreshRequests = (event) => {
+            if (event?.roomId === room.id) {
+                loadJoinRequests();
+            }
+        };
+
+        socket.on("join-request:updated", refreshRequests);
+
+        return () => {
+            socket.off("join-request:updated", refreshRequests);
+        };
+    }, [room?.id, participantType, accessToken]);
+
+
+    useEffect(() => {
+        if (!room?.id || participantType !== "creator") return;
+
+        const handleNewRequest = (event) => {
+            if (event?.roomId === room.id) {
+                loadJoinRequests();
+            }
+        };
+
+        socket.on("join-request:new", handleNewRequest);
+
+        return () => {
+            socket.off("join-request:new", handleNewRequest);
+        };
+    }, [room?.id, participantType, accessToken]);
+
 
     async function handleReviewRequest(requestId, decision) {
         setReviewingRequestId(requestId);
@@ -181,6 +279,20 @@ function RoomPage({
 
     if (!room) {
         return null;
+    }
+
+    if (showRequestsPage && participantType === "creator") {
+        return (
+            <RequestsPage
+                room={room}
+                requests={joinRequests}
+                loading={requestsLoading}
+                error={requestsError}
+                reviewingRequestId={reviewingRequestId}
+                onReviewRequest={handleReviewRequest}
+                onBack={() => setShowRequestsPage(false)}
+            />
+        );
     }
 
     return (
@@ -257,7 +369,7 @@ function RoomPage({
                             <button
                                 type="button"
                                 className="button button-outline"
-                                onClick={() => setShowRequests((previous) => !previous)}
+                                onClick={() => setShowRequestsPage(true)}
                             >
                                 Requests{joinRequests.length > 0 ? ` (${joinRequests.length})` : ""}
                             </button></div>
@@ -265,58 +377,7 @@ function RoomPage({
                     </div>
 
 
-                    {showRequests && (
-                        <div className="room-requests-panel">
-                            <h3>Join Requests</h3>
-                            <p>Review guests waiting to enter this room.</p>
-
-                            {requestsError && (
-                                <p className="room-error">{requestsError}</p>
-                            )}
-
-                            {requestsLoading ? (
-                                <p>Loading requests...</p>
-                            ) : joinRequests.length === 0 ? (
-                                <p>No pending requests.</p>
-                            ) : (
-                                <div className="room-guests-list">
-                                    {joinRequests.map((request) => (
-                                        <article className="room-guest-card" key={request._id}>
-                                            <h4>{request.displayName}</h4>
-                                            <p>
-                                                Requested:{" "}
-                                                {new Date(request.createdAt).toLocaleString()}
-                                            </p>
-
-                                            <button
-                                                type="button"
-                                                className="button button-primary"
-                                                disabled={reviewingRequestId === request._id}
-                                                onClick={() =>
-                                                    handleReviewRequest(request._id, "accepted")
-                                                }
-                                            >
-                                                {reviewingRequestId === request._id
-                                                    ? "Processing..."
-                                                    : "Accept"}
-                                            </button>
-
-                                            <button
-                                                type="button"
-                                                className="button button-outline"
-                                                disabled={reviewingRequestId === request._id}
-                                                onClick={() =>
-                                                    handleReviewRequest(request._id, "rejected")
-                                                }
-                                            >
-                                                Reject
-                                            </button>
-                                        </article>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    )}
+                    
 
                     {guestsError && (
                         <p className="room-error">{guestsError}</p>

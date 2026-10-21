@@ -1,5 +1,6 @@
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import socket from "./api/socket";
 import "./App.css";
 import RoomPage from "./RoomPage";
 import Auth from "./Auth";
@@ -30,7 +31,9 @@ function App() {
 
     setAuthToken(token);
     setCurrentUser(user);
+    setCurrentPage("dashboard");
     setShowAuth(false);
+
   }
 
   useEffect(() => {
@@ -47,6 +50,14 @@ function App() {
       .catch(() => {
         setBackendStatus("Backend connection unavailable");
       });
+  }, []);
+
+  useEffect(() => {
+    socket.connect();
+
+    return () => {
+      socket.disconnect();
+    };
   }, []);
 
   const [showCreateRoom, setShowCreateRoom] = useState(false);
@@ -72,11 +83,201 @@ function App() {
   const [joinedRoom, setJoinedRoom] = useState(null);
   const [joinError, setJoinError] = useState("");
   const [joining, setJoining] = useState(false);
+  const [pendingJoinRequest, setPendingJoinRequest] = useState(null);
+  const [restoredRequestCheck, setRestoredRequestCheck] = useState(false);
+  const cancelJoinRequestRef = useRef(false);
   const [historyRoom, setHistoryRoom] = useState(null);
   const [roomHistory, setRoomHistory] = useState([]);
   const [historyVerification, setHistoryVerification] = useState(null);
   const [currentPage, setCurrentPage] = useState("dashboard");
 
+
+  useEffect(() => {
+    if (authToken && currentUser && currentPage === "dashboard") {
+      loadMyRooms();
+    }
+  }, [authToken, currentUser, currentPage]);
+
+
+
+  useEffect(() => {
+    if (!authToken || !currentUser || currentPage !== "dashboard") {
+      return;
+    }
+
+    const subscribedRoomIds = [];
+
+    const subscribeToRooms = () => {
+      myRooms.forEach((room) => {
+        if (!room.id || subscribedRoomIds.includes(room.id)) {
+          return;
+        }
+
+        socket.emit("room:subscribe", room.id, (result) => {
+          if (result?.success) {
+            subscribedRoomIds.push(room.id);
+            console.log("Subscribed to room events:", room.id);
+          } else {
+            console.error(
+              "Room subscription failed:",
+              room.id,
+              result?.message
+            );
+          }
+        });
+      });
+    };
+
+    const refreshMyRooms = (event) => {
+      if (!event?.roomId) return;
+
+      if (myRooms.some((room) => room.id === event.roomId)) {
+        loadMyRooms();
+      }
+    };
+
+    if (socket.connected) {
+      subscribeToRooms();
+    }
+
+    socket.on("connect", subscribeToRooms);
+    socket.on("join-request:new", refreshMyRooms);
+    socket.on("join-request:updated", refreshMyRooms);
+
+    return () => {
+      socket.off("connect", subscribeToRooms);
+      socket.off("join-request:new", refreshMyRooms);
+      socket.off("join-request:updated", refreshMyRooms);
+
+      subscribedRoomIds.forEach((roomId) => {
+        socket.emit("room:unsubscribe", roomId);
+      });
+    };
+  }, [authToken, currentUser, currentPage, myRooms]);
+
+
+
+  useEffect(() => {
+    const savedRequest = localStorage.getItem("trustflow_pending_request");
+
+    if (!savedRequest) return;
+
+    try {
+      const request = JSON.parse(savedRequest);
+
+      if (!request.requestToken) {
+        localStorage.removeItem("trustflow_pending_request");
+        return;
+      }
+
+      setPendingJoinRequest(request);
+      setRestoredRequestCheck(true);
+    } catch {
+      localStorage.removeItem("trustflow_pending_request");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!restoredRequestCheck || !pendingJoinRequest?.requestToken) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function checkRestoredRequest() {
+      const { requestToken } = pendingJoinRequest;
+
+      try {
+        while (!cancelled) {
+          const statusResponse = await fetch(
+            `${API_URL}/api/guests/join-request-status`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ requestToken }),
+            }
+          );
+
+          const statusData = await statusResponse.json();
+
+          if (!statusResponse.ok) {
+            throw new Error(
+              statusData.message || "Unable to check request status."
+            );
+          }
+
+          if (cancelled) return;
+
+          if (statusData.status === "pending") {
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+            continue;
+          }
+
+          if (statusData.status === "accepted") {
+            localStorage.setItem("trustflow_guest_token", requestToken);
+            localStorage.removeItem("trustflow_pending_request");
+
+            setPendingJoinRequest(null);
+            setRestoredRequestCheck(false);
+
+            setJoinedRoom({
+              ...statusData.room,
+              guest: statusData.guest,
+              sessionExpiresAt: statusData.sessionExpiresAt,
+            });
+
+            setActiveRoom(statusData.room);
+            setActiveParticipantType("guest");
+
+            await loadRoomFiles(statusData.room.id);
+            return;
+          }
+
+          if (
+            statusData.status === "rejected" ||
+            statusData.status === "withdrawn"
+          ) {
+            localStorage.removeItem("trustflow_pending_request");
+            localStorage.removeItem("trustflow_guest_token");
+
+            setPendingJoinRequest(null);
+            setRestoredRequestCheck(false);
+
+            if (statusData.status === "rejected") {
+              localStorage.removeItem("trustflow_guest_token");
+              localStorage.removeItem("trustflow_pending_request");
+
+              setPendingJoinRequest(null);
+              setRestoredRequestCheck(false);
+
+              setJoinError("Your join request was rejected by the room owner.");
+              return;
+            }
+
+            return;
+          }
+
+          return;
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setJoinError(
+            error.message === "Failed to fetch"
+              ? "Cannot connect to the server. Check your internet connection."
+              : error.message
+          );
+        }
+      }
+    }
+
+    checkRestoredRequest();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [restoredRequestCheck, pendingJoinRequest]);
 
   async function handleCreateRoom(event) {
     event.preventDefault();
@@ -284,6 +485,8 @@ function App() {
   async function handleJoinRoom(event) {
     event.preventDefault();
 
+    cancelJoinRequestRef.current = false;
+
     setJoinError("");
     setJoinedRoom(null);
 
@@ -321,10 +524,28 @@ function App() {
         throw new Error("The server did not return a request token.");
       }
 
+      localStorage.setItem("trustflow_guest_token", requestToken);
+
+      setPendingJoinRequest({
+        requestToken,
+        inviteCode: inviteCode.trim(),
+        guestName: guestName.trim(),
+      });
+
+      localStorage.setItem("trustflow_pending_request", JSON.stringify({
+        requestToken,
+        inviteCode: inviteCode.trim(),
+        guestName: guestName.trim(),
+      }));
+
       alert("Join request sent. Waiting for the room owner to respond.");
 
       while (true) {
-        await new Promise((resolve) => setTimeout(resolve, 3000));
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+
+        if (cancelJoinRequestRef.current) {
+          break;
+        }
 
         const statusResponse = await fetch(
           `${API_URL}/api/guests/join-request-status`,
@@ -350,11 +571,28 @@ function App() {
         }
 
         if (statusData.status === "rejected") {
+          localStorage.removeItem("trustflow_guest_token");
+          localStorage.removeItem("trustflow_pending_request");
+
+          setPendingJoinRequest(null);
+          setRestoredRequestCheck(false);
+
           throw new Error("Your join request was rejected by the room owner.");
+        }
+
+        if (statusData.status === "withdrawn") {
+          localStorage.removeItem("trustflow_guest_token");
+          localStorage.removeItem("trustflow_pending_request");
+          setPendingJoinRequest(null);
+          break;
         }
 
         if (statusData.status === "accepted") {
           localStorage.setItem("trustflow_guest_token", requestToken);
+          localStorage.removeItem("trustflow_pending_request");
+
+          setPendingJoinRequest(null);
+          setRestoredRequestCheck(false);
 
           setJoinedRoom({
             ...statusData.room,
@@ -382,6 +620,46 @@ function App() {
     }
   }
 
+  async function handleWithdrawJoinRequest() {
+    if (!pendingJoinRequest) return;
+
+    cancelJoinRequestRef.current = true;
+    setJoinError("");
+
+    try {
+      const response = await fetch(
+        `${API_URL}/api/guests/withdraw-join-request`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${pendingJoinRequest.requestToken}`,
+          },
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Unable to withdraw join request.");
+      }
+
+      localStorage.removeItem("trustflow_guest_token");
+      localStorage.removeItem("trustflow_pending_request");
+
+      setPendingJoinRequest(null);
+      setRestoredRequestCheck(false);
+      setJoinError("");
+
+    } catch (error) {
+      cancelJoinRequestRef.current = false;
+
+      setJoinError(
+        error.message === "Failed to fetch"
+          ? "Cannot connect to the server. Please try again."
+          : error.message
+      );
+    }
+  }
 
 
   async function handleLeaveRoom() {
@@ -426,6 +704,10 @@ function App() {
       }
 
       localStorage.removeItem("trustflow_guest_token");
+      localStorage.removeItem("trustflow_pending_request");
+
+      setPendingJoinRequest(null);
+      setRestoredRequestCheck(false);
       setJoinedRoom(null);
       setInviteCode("");
       setGuestName("");
@@ -1177,11 +1459,25 @@ function App() {
               <button
                 className="button button-primary"
                 type="submit"
-                disabled={joining}
+                disabled={joining || !!pendingJoinRequest}
               >
                 {joining ? "Joining..." : "Join room"}
               </button>
             </form>
+
+            {pendingJoinRequest && (
+              <div className="join-request-pending">
+                <p>Join request pending. Waiting for the room owner...</p>
+
+                <button
+                  type="button"
+                  className="button button-secondary"
+                  onClick={handleWithdrawJoinRequest}
+                >
+                  Withdraw Request
+                </button>
+              </div>
+            )}
 
             {joinError && <p className="room-error">{joinError}</p>}
 
