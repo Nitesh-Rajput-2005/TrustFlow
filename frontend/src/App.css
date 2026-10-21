@@ -524,13 +524,23 @@ a {
 }
 
 .my-rooms-heading h2 {
-  margin: 0
+  margin: 0;
 }
 
-.my-rooms-heading p {
+
+
+
+.my-rooms-heading p1 {
   margin: 7px 0 0;
-  color: #778399;
-  font-size: 13px
+  color: #5f40f8;
+  font-size: 20px
+}
+
+.my-rooms-heading p2 {
+  margin: 7px 0 0;
+  color: #050505b4;
+  font-size: 20px;
+  font-weight:500;
 }
 
 .my-rooms-list {
@@ -581,7 +591,7 @@ a {
 
 .history-page .my-rooms-heading h1 {
   margin: 0;
-  font-size: 32px
+  font-size: 30px
 }
 
 .history-page .my-rooms-section>p {

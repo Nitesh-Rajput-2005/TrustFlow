@@ -1143,9 +1143,9 @@ function App() {
 
           <div className="my-rooms-heading">
             <div>
-              <p className="eyebrow">TRUSTFLOW AUDIT LOG</p>
+              <p1 className="eyebrow">TRUSTFLOW AUDIT LOG</p1>
               <h1>Room History</h1>
-              <p>{historyRoom.name}</p>
+              <p2>{historyRoom.name}</p2>
             </div>
 
             <button
